@@ -16,10 +16,10 @@ export async function POST(req: Request) {
     }
 
     // Get the headers
-    const headerPayload = headers();
-    const svix_id = (await headerPayload).get("svix-id");
-    const svix_timestamp = (await headerPayload).get("svix-timestamp");
-    const svix_signature = (await headerPayload).get("svix-signature");
+    const headerPayload = await headers();
+    const svix_id = headerPayload.get("svix-id");
+    const svix_timestamp = headerPayload.get("svix-timestamp");
+    const svix_signature = headerPayload.get("svix-signature");
 
     // If there are no headers, error out
     if (!svix_id || !svix_timestamp || !svix_signature) {
@@ -57,17 +57,42 @@ export async function POST(req: Request) {
     const eventType = evt.type;
 
     if (eventType === "user.created") {
-        const { email_addresses, first_name, last_name, id, } = evt.data;
+        try {
+            const { email_addresses, first_name, last_name, id } = evt.data;
 
-        const user = {
-            clerkId: id,
-            email: email_addresses[0].email_address,
-            firstName: first_name || "",
-            lastName: last_name || "",  
-        };
+            console.log("Processing user.created webhook for:", { id, email: email_addresses?.[0]?.email_address });
 
-        await addUser(user);
-        return NextResponse.json({ message: "New user created", user });
+            if (!email_addresses || !email_addresses[0]?.email_address) {
+                console.error("No email address found in webhook data");
+                return new Response("Missing email address", { status: 400 });
+            }
+
+            const user = {
+                clerkId: id,
+                email: email_addresses[0].email_address,
+                firstName: first_name || "",
+                lastName: last_name || "",
+            };
+
+            const result = await addUser(user);
+
+            if (result.success) {
+                console.log("User successfully created in database:", result.data);
+                return NextResponse.json({
+                    message: "New user created",
+                    user: result.data
+                });
+            } else {
+                console.log("User creation failed:", result.error);
+                return NextResponse.json({
+                    message: "User creation failed",
+                    error: result.error
+                }, { status: 400 });
+            }
+        } catch (error) {
+            console.error("Error processing user.created webhook:", error);
+            return new Response("Internal server error", { status: 500 });
+        }
     }
 
     console.log(`Webhook with and ID of ${id} and type of ${eventType}`);
